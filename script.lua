@@ -7,227 +7,222 @@ local window = Rayfield:CreateWindow({
 
 local tab = window:CreateTab({ name = "Hatching", icon = 93364949241311 })
 
--- Auto-detect the hatching remote
-local HatchRemote = nil
-local EggFolder = nil
-
--- Common remote paths to search
-local RemotePaths = {
-    "ReplicatedStorage.Remote.Egg.Server.Purchase",
-    "ReplicatedStorage.Remotes.Egg.Server.Purchase",
-    "ReplicatedStorage.EggHatchingRemotes.AutoHatch",
-    "ReplicatedStorage.Events.Hatch",
-    "ReplicatedStorage.Remotes.HatchCrystal",
-    "ReplicatedStorage.Remote.Crystal.Server.Hatch",
-    "ReplicatedStorage.Eggs.Hatch",
-    "ReplicatedStorage.REMOTES.Hatch",
-    "ReplicatedStorage.HatchRemote",
+-- All crystal types in the game
+local CrystalList = {
+    "Blue Crystal",
+    "Green Crystal", 
+    "Frozen Crystal",
+    "Mythical Crystal",
+    "InfernoCrystal",
+    "Legends Crystal",
+    "Dark Nebula Crystal",
+    "Muscle Elite Crystal",
+    "GalaxyOracle Crystal",
+    "Battle Legends Crystal",
+    "Sky Eclipse Crystal",
+    "Jungle Crystal",
+    "Void Crystal"
+    "Unlimited Secrets Crystal",
 }
 
--- Search for the hatching remote
-function FindHatchRemote()
-    for _, path in ipairs(RemotePaths) do
-        local parts = path:split(".")
-        local obj = game
-        local found = true
-        for _, part in ipairs(parts) do
-            obj = obj:FindFirstChild(part)
-            if not obj then
-                found = false
+-- Local variables
+getgenv().AutoHatchCrystal = false
+getgenv().SelectedCrystal = "Blue Crystal"
+getgenv().HatchDelay = 1
+
+-- Find the remote
+local rEvents = game:GetService("ReplicatedStorage"):FindFirstChild("rEvents")
+local HatchRemote = rEvents and rEvents:FindFirstChild("openCrystalRemote")
+
+-- Status label
+local statusLabel = tab:CreateLabel({
+    text = "Status: Waiting...",
+    color = Color3.fromRGB(255, 255, 255),
+})
+
+-- Update status
+local function UpdateStatus(msg, color)
+    color = color or Color3.fromRGB(255, 255, 255)
+    statusLabel:Set("Status: " .. msg)
+end
+
+-- Initial check
+if HatchRemote then
+    UpdateStatus("Remote found: openCrystalRemote | Ready", Color3.fromRGB(0, 255, 0))
+else
+    rEvents = game:GetService("ReplicatedStorage"):FindFirstChild("rEvents")
+    if rEvents then
+        -- Scan rEvents for hatch-related remotes
+        for _, child in ipairs(rEvents:GetChildren()) do
+            if child.Name:lower():find("crystal") or child.Name:lower():find("hatch") or child.Name:lower():find("egg") then
+                HatchRemote = child
                 break
             end
         end
-        if found then
-            return obj
-        end
     end
-    return nil
-end
-
--- Find egg/crystal objects in workspace
-function FindCrystals()
-    local crystals = {}
-    
-    -- Common names for crystals/eggs
-    local crystalNames = {"Crystal", "Egg", "CrystalEgg", "CrystalOre", "Ore", "Gem"}
-    
-    for _, name in ipairs(crystalNames) do
-        for _, obj in ipairs(workspace:GetDescendants()) do
-            if obj:IsA("Model") or obj:IsA("Part") or obj:IsA("MeshPart") then
-                if obj.Name:find(name, 1, true) or obj.Name:lower():find("crystal", 1, true) or obj.Name:lower():find("egg", 1, true) then
-                    -- Check if it has a ClickDetector or ProximityPrompt (hatchable)
-                    if obj:FindFirstChildOfClass("ClickDetector") or obj:FindFirstChildOfClass("ProximityPrompt") then
-                        table.insert(crystals, obj)
-                    end
-                end
-            end
-        end
-    end
-    
-    -- Also check folders named Eggs or Crystals
-    local eggFolder = workspace:FindFirstChild("Eggs") or workspace:FindFirstChild("Crystals") or workspace:FindFirstChild("CrystalOres")
-    if eggFolder then
-        for _, child in ipairs(eggFolder:GetChildren()) do
-            if child:IsA("Model") or child:IsA("Part") then
-                table.insert(crystals, child)
-            end
-        end
-    end
-    
-    return crystals
-end
-
--- Try to hatch using ClickDetector
-function ClickCrystal(crystal)
-    local detector = crystal:FindFirstChildOfClass("ClickDetector")
-    if detector then
-        fireclickdetector(detector)
-        return true
-    end
-    local prompt = crystal:FindFirstChildOfClass("ProximityPrompt")
-    if prompt then
-        fireproximityprompt(prompt)
-        return true
-    end
-    return false
-end
-
--- Variables
-getgenv().AutoHatch = false
-getgenv().HatchCooldown = 0.5
-
-local statusLabel = tab:CreateLabel({ text = "Status: Searching for remotes...", color = Color3.fromRGB(255, 255, 255) })
-
--- Auto-detect on load
-local function Initialize()
-    HatchRemote = FindHatchRemote()
     
     if HatchRemote then
-        statusLabel:Set("Status: Remote found: " .. HatchRemote:GetFullName() .. " | Type: " .. HatchRemote.ClassName)
+        UpdateStatus("Remote found: " .. HatchRemote.Name .. " | Ready", Color3.fromRGB(0, 255, 0))
     else
-        -- Last resort: scan all RemoteFunctions/RemoteEvents in ReplicatedStorage
-        for _, obj in ipairs(game:GetService("ReplicatedStorage"):GetDescendants()) do
-            if (obj:IsA("RemoteFunction") or obj:IsA("RemoteEvent")) and 
-               (obj.Name:lower():find("hatch") or obj.Name:lower():find("purchase") or obj.Name:lower():find("egg") or obj.Name:lower():find("crystal")) then
-                HatchRemote = obj
-                statusLabel:Set("Status: Found remote: " .. obj:GetFullName())
-                break
-            end
-        end
-        
-        if not HatchRemote then
-            statusLabel:Set("Status: No hatch remote found. Using ClickDetector fallback.")
-        end
+        UpdateStatus("Remote NOT found! Try re-joining the game.", Color3.fromRGB(255, 0, 0))
     end
 end
 
--- Auto hatch logic
-local function AutoHatchLoop()
-    while getgenv().AutoHatch do
-        local success, result = pcall(function()
-            if HatchRemote then
-                -- Find crystals to hatch
-                local crystals = FindCrystals()
-                
-                if #crystals > 0 then
-                    for _, crystal in ipairs(crystals) do
-                        if not getgenv().AutoHatch then break end
-                        
-                        -- Fire the remote with the crystal/egg
-                        if HatchRemote:IsA("RemoteFunction") then
-                            HatchRemote:InvokeServer(crystal)
-                        elseif HatchRemote:IsA("RemoteEvent") then
-                            HatchRemote:FireServer(crystal)
-                        end
-                        
-                        task.wait(getgenv().HatchCooldown)
-                    end
-                else
-                    -- If no crystals found via workspace, try invoking remote with no args
-                    if HatchRemote:IsA("RemoteFunction") then
-                        local result = HatchRemote:InvokeServer()
-                    elseif HatchRemote:IsA("RemoteEvent") then
-                        HatchRemote:FireServer()
-                    end
+-- Crystal selection dropdown
+local crystalDropdown = tab:CreateDropdown({
+    name = "Select Crystal",
+    options = CrystalList,
+    currentOption = "Blue Crystal",
+    callback = function(value)
+        getgenv().SelectedCrystal = value
+        UpdateStatus("Selected: " .. value .. (getgenv().AutoHatchCrystal and " | Auto-hatching..." or " | Idle"))
+    end,
+})
+
+-- Auto-hatch loop
+local function AutoHatchLoopFn()
+    while getgenv().AutoHatchCrystal do
+        local success, err = pcall(function()
+            local remote = game:GetService("ReplicatedStorage"):FindFirstChild("rEvents") and 
+                           game:GetService("ReplicatedStorage").rEvents:FindFirstChild("openCrystalRemote")
+            
+            if remote then
+                if remote:IsA("RemoteFunction") then
+                    remote:InvokeServer("openCrystal", getgenv().SelectedCrystal)
+                elseif remote:IsA("RemoteEvent") then
+                    remote:FireServer("openCrystal", getgenv().SelectedCrystal)
                 end
             else
-                -- Fallback: click crystals directly
-                local crystals = FindCrystals()
-                for _, crystal in ipairs(crystals) do
-                    if not getgenv().AutoHatch then break end
-                    ClickCrystal(crystal)
-                    task.wait(getgenv().HatchCooldown)
+                -- Fallback: try to find any remote in rEvents
+                local rE = game:GetService("ReplicatedStorage"):FindFirstChild("rEvents")
+                if rE then
+                    for _, child in ipairs(rE:GetChildren()) do
+                        if child.Name:lower():find("crystal") or child.Name:lower():find("hatch") then
+                            if child:IsA("RemoteFunction") then
+                                child:InvokeServer("openCrystal", getgenv().SelectedCrystal)
+                            elseif child:IsA("RemoteEvent") then
+                                child:FireServer("openCrystal", getgenv().SelectedCrystal)
+                            end
+                            break
+                        end
+                    end
                 end
             end
         end)
         
         if not success then
-            warn("[Lifting Monster] Hatch error:", result)
+            warn("[Lifting Monster] Hatch error:", err)
         end
         
-        task.wait(0.3)
+        task.wait(getgenv().HatchDelay)
     end
 end
 
--- Toggle
+-- Main toggle
 tab:CreateToggle({
-    name = "Auto Hatch Any Crystal",
+    name = "Auto Hatch Crystal",
     currentValue = false,
     callback = function(value)
-        getgenv().AutoHatch = value
+        getgenv().AutoHatchCrystal = value
         
         if value then
-            -- Re-initialize to find remotes if not found yet
-            if not HatchRemote then
-                Initialize()
+            -- Re-fetch remote in case it wasn't ready before
+            local rs = game:GetService("ReplicatedStorage")
+            local rE = rs:FindFirstChild("rEvents")
+            HatchRemote = rE and rE:FindFirstChild("openCrystalRemote")
+            
+            if not HatchRemote and rE then
+                for _, child in ipairs(rE:GetChildren()) do
+                    if child.Name:lower():find("crystal") or child.Name:lower():find("hatch") then
+                        HatchRemote = child
+                        break
+                    end
+                end
             end
             
-            -- Check if there are crystal folders with specific structure
-            EggFolder = workspace:FindFirstChild("Crystals") or workspace:FindFirstChild("Eggs") 
-                        or workspace:FindFirstChild("CrystalOres")
-            
-            if EggFolder then
-                statusLabel:Set("Status: Active | Found folder: " .. EggFolder.Name .. " (" .. #EggFolder:GetChildren() .. " items)")
-            elseif HatchRemote then
-                statusLabel:Set("Status: Active | Using remote: " .. HatchRemote:GetFullName())
+            if HatchRemote then
+                UpdateStatus("Auto-hatching " .. getgenv().SelectedCrystal .. " | Active", Color3.fromRGB(0, 255, 0))
             else
-                statusLabel:Set("Status: Active | Using ClickDetector fallback")
+                UpdateStatus("Active (trying remotes...) | Crystal: " .. getgenv().SelectedCrystal, Color3.fromRGB(255, 200, 0))
             end
             
-            -- Start the loop
-            task.spawn(AutoHatchLoop)
+            task.spawn(AutoHatchLoopFn)
         else
-            statusLabel:Set("Status: Disabled")
+            UpdateStatus("Disabled", Color3.fromRGB(255, 255, 255))
         end
     end,
 })
 
--- Manual scan button
-tab:CreateButton({
-    name = "Scan for Crystals / Remotes",
-    callback = function()
-        Initialize()
-        
-        -- Also scan for crystals
-        local crystals = FindCrystals()
-        statusLabel:Set("Status: Found " .. #crystals .. " crystals | Remote: " .. (HatchRemote and HatchRemote:GetFullName() or "None (using click)"))
+-- Speed options
+local delaySection = tab:CreateSection("Speed Settings")
+
+tab:CreateSlider({
+    name = "Hatch Delay (seconds)",
+    min = 0.1,
+    max = 5,
+    current = 1,
+    increment = 0.1,
+    callback = function(value)
+        getgenv().HatchDelay = value
     end,
 })
 
--- Status display
-local infoLabel = tab:CreateLabel({ 
-    text = "Crystals found: 0 | Remote: scanning...", 
-    color = Color3.fromRGB(200, 200, 200) 
+-- Manual hatch button
+tab:CreateButton({
+    name = "Hatch Selected Crystal Once",
+    callback = function()
+        local rs = game:GetService("ReplicatedStorage")
+        local rE = rs:FindFirstChild("rEvents")
+        local remote = rE and rE:FindFirstChild("openCrystalRemote")
+        
+        if remote then
+            if remote:IsA("RemoteFunction") then
+                remote:InvokeServer("openCrystal", getgenv().SelectedCrystal)
+            else
+                remote:FireServer("openCrystal", getgenv().SelectedCrystal)
+            end
+            UpdateStatus("Manually hatched: " .. getgenv().SelectedCrystal, Color3.fromRGB(0, 200, 255))
+        else
+            UpdateStatus("Remote not found!", Color3.fromRGB(255, 0, 0))
+        end
+    end,
 })
 
--- Periodic crystal counter
-task.spawn(function()
-    while task.wait(3) do
-        local count = #FindCrystals()
-        local remoteStr = HatchRemote and HatchRemote:GetFullName() or "ClickDetector mode"
-        infoLabel:Set("Crystals found: " .. count .. " | Remote: " .. remoteStr)
-    end
-end)
+-- Debug: dump all remotes
+tab:CreateButton({
+    name = "Debug: Scan All Remotes",
+    callback = function()
+        local rs = game:GetService("ReplicatedStorage")
+        local rE = rs:FindFirstChild("rEvents")
+        
+        if rE then
+            local info = "rEvents folder found with " .. #rE:GetChildren() .. " children:\n"
+            for _, child in ipairs(rE:GetChildren()) do
+                info = info .. "  " .. child.Name .. " (" .. child.ClassName .. ")\n"
+            end
+            warn(info)
+            UpdateStatus("rEvents scanned. Check F9 console.", Color3.fromRGB(0, 200, 255))
+        else
+            -- Broader scan
+            local info = "rEvents NOT found. Scanning ReplicatedStorage for remotes:\n"
+            for _, child in ipairs(rs:GetChildren()) do
+                if child:IsA("RemoteFunction") or child:IsA("RemoteEvent") or child:IsA("Folder") then
+                    info = info .. "  " .. child.Name .. " (" .. child.ClassName .. ")\n"
+                    if child:IsA("Folder") then
+                        for _, sub in ipairs(child:GetChildren()) do
+                            info = info .. "    - " .. sub.Name .. " (" .. sub.ClassName .. ")\n"
+                        end
+                    end
+                end
+            end
+            warn(info)
+            UpdateStatus("Check F9 console for remote scan results.", Color3.fromRGB(0, 200, 255))
+        end
+    end,
+})
 
--- Run initialization
-task.delay(1, Initialize)
+-- Info label
+tab:CreateLabel({
+    text = "Crystal list includes all known types",
+    color = Color3.fromRGB(180, 180, 180),
+})
